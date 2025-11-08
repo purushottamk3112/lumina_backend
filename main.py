@@ -54,7 +54,7 @@ async def startup_db_client():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    if mongodb_client:
+    if mongodb_client is not None:  # FIXED: Compare with None instead of boolean evaluation
         mongodb_client.close()
         print("✅ Database connection closed")
 
@@ -76,7 +76,7 @@ def format_file_size(bytes_size: int) -> str:
 async def root():
     return {
         "message": "LuminaText Transcription API",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "provider": "Deepgram",
         "endpoints": {
             "/api/health": "Health check",
@@ -106,7 +106,8 @@ async def health_check():
                 "message": "MONGODB_URI not configured"
             }
             
-        if db:
+        # FIXED: Compare with None instead of boolean evaluation
+        if db is not None:
             await db.command("ping")
             print("✅ MongoDB ping successful")
             
@@ -199,8 +200,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 }
             }
             
-            # FIXED: Better database error handling for Motor 3.7.1
-            if db:
+            # FIXED: Compare with None instead of boolean evaluation
+            if db is not None:
                 try:
                     await db.transcriptions.insert_one(transcription_data.copy())
                     print("✅ Transcription saved to database")
@@ -226,7 +227,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
         print(f"❌ Error during transcription: {str(e)}")
         print(f"Error type: {type(e).__name__}")
         print(f"Deepgram client type: {type(deepgram_client)}")
-        print(f"Available methods: {[m for m in dir(deepgram_client) if not m.startswith('_')]}")
         print(traceback.format_exc())
         raise HTTPException(
             status_code=500,
@@ -236,7 +236,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
 @app.get("/api/history")
 async def get_history(limit: int = 10, skip: int = 0):
     try:
-        if not db:
+        # FIXED: Compare with None instead of boolean evaluation
+        if db is None:
             raise HTTPException(
                 status_code=500,
                 detail="Database not configured"
@@ -276,7 +277,8 @@ async def get_history(limit: int = 10, skip: int = 0):
 @app.delete("/api/history/{transcription_id}")
 async def delete_transcription(transcription_id: str):
     try:
-        if not db:
+        # FIXED: Compare with None instead of boolean evaluation
+        if db is None:
             raise HTTPException(
                 status_code=500,
                 detail="Database not configured"
