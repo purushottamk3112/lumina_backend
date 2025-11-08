@@ -1,8 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from deepgram import DeepgramClient
-from deepgram.core.models import PrerecordedOptions
+from deepgram import DeepgramClient, PrerecordedOptions  # FIXED: Correct import
 import os
 from datetime import datetime
 import tempfile
@@ -54,7 +53,7 @@ async def startup_db_client():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    if mongodb_client is not None:  # FIXED: Compare with None instead of boolean evaluation
+    if mongodb_client is not None:
         mongodb_client.close()
         print("✅ Database connection closed")
 
@@ -76,7 +75,7 @@ def format_file_size(bytes_size: int) -> str:
 async def root():
     return {
         "message": "LuminaText Transcription API",
-        "version": "2.3.0",
+        "version": "2.4.0",
         "provider": "Deepgram",
         "endpoints": {
             "/api/health": "Health check",
@@ -106,7 +105,6 @@ async def health_check():
                 "message": "MONGODB_URI not configured"
             }
             
-        # FIXED: Compare with None instead of boolean evaluation
         if db is not None:
             await db.command("ping")
             print("✅ MongoDB ping successful")
@@ -200,7 +198,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 }
             }
             
-            # FIXED: Compare with None instead of boolean evaluation
             if db is not None:
                 try:
                     await db.transcriptions.insert_one(transcription_data.copy())
@@ -236,14 +233,12 @@ async def transcribe_audio(file: UploadFile = File(...)):
 @app.get("/api/history")
 async def get_history(limit: int = 10, skip: int = 0):
     try:
-        # FIXED: Compare with None instead of boolean evaluation
         if db is None:
             raise HTTPException(
                 status_code=500,
                 detail="Database not configured"
             )
         
-        # FIXED: Motor 3.7.1 compatible cursor handling
         cursor = db.transcriptions.find({}, limit=limit, skip=skip).sort("createdAt", -1)
         transcriptions = await cursor.to_list(length=limit)
         
@@ -277,7 +272,6 @@ async def get_history(limit: int = 10, skip: int = 0):
 @app.delete("/api/history/{transcription_id}")
 async def delete_transcription(transcription_id: str):
     try:
-        # FIXED: Compare with None instead of boolean evaluation
         if db is None:
             raise HTTPException(
                 status_code=500,
