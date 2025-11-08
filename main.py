@@ -75,6 +75,9 @@ async def health_check():
         deepgram_key = os.getenv("DEEPGRAM_API_KEY")
         mongodb_uri = os.getenv("MONGODB_URI")
         
+        print(f"🔍 Health check - Deepgram key: {'✅ Set' if deepgram_key else '❌ Missing'}")
+        print(f"🔍 Health check - MongoDB URI: {'✅ Set' if mongodb_uri else '❌ Missing'}")
+        
         if not deepgram_key:
             return {
                 "status": "unhealthy",
@@ -89,16 +92,20 @@ async def health_check():
             
         if db:
             await db.command("ping")
+            print("✅ MongoDB ping successful")
             
         return {
             "status": "healthy",
             "message": "API is running",
-            "database": "connected"
+            "database": "connected",
+            "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
+        print(f"❌ Health check failed: {str(e)}")
         return {
             "status": "unhealthy",
-            "message": str(e)
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
         }
 
 @app.post("/api/transcribe")
