@@ -30,13 +30,13 @@ async def startup_db_client():
     global mongodb_client, db, deepgram_client
     
     try:
-        # Fixed MongoDB connection
+        # Fixed MongoDB connection for Motor 3.7.1
         mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/luminatext")
         mongodb_client = AsyncIOMotorClient(mongodb_uri, serverSelectionTimeoutMS=5000)
         
-        # Test connection
+        # Test connection with proper Motor 3.7.1 syntax
         await mongodb_client.admin.command('ping')
-        db = mongodb_client.get_database("luminatext")  # Explicit database name
+        db = mongodb_client.get_database("luminatext")
         
         # Initialize Deepgram client
         deepgram_api_key = os.getenv("DEEPGRAM_API_KEY")
@@ -76,7 +76,7 @@ def format_file_size(bytes_size: int) -> str:
 async def root():
     return {
         "message": "LuminaText Transcription API",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "provider": "Deepgram",
         "endpoints": {
             "/api/health": "Health check",
@@ -158,13 +158,13 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 detail="Empty file uploaded"
             )
         
-        # FIXED: Use correct Deepgram SDK v3.2.0 API
+        # FIXED: Use correct Deepgram SDK v3.2.0 API with proper options
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_file.write(content)
             temp_file_path = temp_file.name
         
         try:
-            # FIXED: Correct Deepgram API usage
+            # FIXED: Correct Deepgram API usage for v3.2.0
             with open(temp_file_path, "rb") as audio_file:
                 options = PrerecordedOptions(
                     model="nova-2",
@@ -174,12 +174,13 @@ async def transcribe_audio(file: UploadFile = File(...)):
                     utterances=True,
                 )
                 
+                # FIXED: Proper method call for deepgram-sdk 3.2.0
                 response = deepgram_client.listen.prerecorded.v("1").transcribe_file(
-                    audio_file.read(),
+                    {"buffer": audio_file.read()},
                     options
                 )
             
-            # FIXED: Proper response parsing
+            # FIXED: Proper response parsing for v3.2.0
             transcribed_text = response.results.channels[0].alternatives[0].transcript
             duration = response.metadata.duration if hasattr(response.metadata, 'duration') else None
             
@@ -198,7 +199,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 }
             }
             
-            # FIXED: Better database error handling
+            # FIXED: Better database error handling for Motor 3.7.1
             if db:
                 try:
                     await db.transcriptions.insert_one(transcription_data.copy())
@@ -225,6 +226,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         print(f"❌ Error during transcription: {str(e)}")
         print(f"Error type: {type(e).__name__}")
         print(f"Deepgram client type: {type(deepgram_client)}")
+        print(f"Available methods: {[m for m in dir(deepgram_client) if not m.startswith('_')]}")
         print(traceback.format_exc())
         raise HTTPException(
             status_code=500,
@@ -240,7 +242,8 @@ async def get_history(limit: int = 10, skip: int = 0):
                 detail="Database not configured"
             )
         
-        cursor = db.transcriptions.find().sort("createdAt", -1).skip(skip).limit(limit)
+        # FIXED: Motor 3.7.1 compatible cursor handling
+        cursor = db.transcriptions.find({}, limit=limit, skip=skip).sort("createdAt", -1)
         transcriptions = await cursor.to_list(length=limit)
         
         for item in transcriptions:
