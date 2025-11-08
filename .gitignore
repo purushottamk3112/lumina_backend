@@ -12,3 +12,4 @@ ENV/
 .DS_Store
 temp/
 *.tmp
+.env
