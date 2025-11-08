@@ -135,49 +135,62 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 detail="Empty file uploaded"
             )
         
-        # CORRECT: Use the proper Deepgram SDK v3.2.0 API structure
-        response = deepgram_client.listen.v1.media.transcribe_file(
-            request=content,
-            model="nova-2",
-            smart_format=True,
-            punctuate=True,
-            paragraphs=True,
-            utterances=True,
-        )
+        # CORRECT: Use the proper Deepgram SDK v3.2.0 API structure for file transcription
+        # Based on official documentation: deepgram.listen.v1.media.transcribe_file
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_file.write(content)
+            temp_file_path = temp_file.name
         
-        result = response.to_dict()
-        
-        transcribed_text = result['results']['channels'][0]['alternatives'][0]['transcript']
-        duration = result['metadata'].get('duration', None)
-        
-        transcription_data = {
-            "text": transcribed_text,
-            "fileName": file.filename,
-            "duration": format_duration(duration),
-            "fileSize": format_file_size(file_size),
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "createdAt": datetime.now(),
-            "metadata": {
-                "duration_seconds": duration,
-                "file_size_bytes": file_size,
-                "model": "nova-2",
-                "provider": "deepgram"
+        try:
+            # Open the temporary file and transcribe it
+            with open(temp_file_path, "rb") as audio_file:
+                response = deepgram_client.listen.v1.media.transcribe_file(
+                    request=audio_file.read(),
+                    model="nova-2",
+                    smart_format=True,
+                    punctuate=True,
+                    paragraphs=True,
+                    utterances=True,
+                )
+            
+            result = response.to_dict()
+            
+            transcribed_text = result['results']['channels'][0]['alternatives'][0]['transcript']
+            duration = result['metadata'].get('duration', None)
+            
+            transcription_data = {
+                "text": transcribed_text,
+                "fileName": file.filename,
+                "duration": format_duration(duration),
+                "fileSize": format_file_size(file_size),
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "createdAt": datetime.now(),
+                "metadata": {
+                    "duration_seconds": duration,
+                    "file_size_bytes": file_size,
+                    "model": "nova-2",
+                    "provider": "deepgram"
+                }
             }
-        }
-        
-        if db:
-            try:
-                await db.transcriptions.insert_one(transcription_data.copy())
-            except Exception as e:
-                print(f"Failed to save to database: {e}")
-        
-        return {
-            "text": transcription_data["text"],
-            "fileName": transcription_data["fileName"],
-            "duration": transcription_data["duration"],
-            "fileSize": transcription_data["fileSize"],
-            "date": transcription_data["date"]
-        }
+            
+            if db:
+                try:
+                    await db.transcriptions.insert_one(transcription_data.copy())
+                except Exception as e:
+                    print(f"Failed to save to database: {e}")
+            
+            return {
+                "text": transcription_data["text"],
+                "fileName": transcription_data["fileName"],
+                "duration": transcription_data["duration"],
+                "fileSize": transcription_data["fileSize"],
+                "date": transcription_data["date"]
+            }
+            
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
             
     except HTTPException:
         raise
