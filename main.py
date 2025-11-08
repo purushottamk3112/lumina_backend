@@ -1,7 +1,8 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from deepgram import DeepgramClient, PrerecordedOptions, FileSource
+from deepgram import DeepgramClient
+from deepgram.core.models import PrerecordedOptions
 import os
 from datetime import datetime
 import tempfile
@@ -28,19 +29,34 @@ deepgram_client = None
 async def startup_db_client():
     global mongodb_client, db, deepgram_client
     
-    mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/luminatext")
-    mongodb_client = AsyncIOMotorClient(mongodb_uri)
-    db = mongodb_client.get_default_database()
-    
-    deepgram_api_key = os.getenv("DEEPGRAM_API_KEY")
-    if deepgram_api_key:
-        deepgram_client = DeepgramClient(deepgram_api_key)
-        print("Deepgram client initialized successfully")
+    try:
+        # Fixed MongoDB connection
+        mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/luminatext")
+        mongodb_client = AsyncIOMotorClient(mongodb_uri, serverSelectionTimeoutMS=5000)
+        
+        # Test connection
+        await mongodb_client.admin.command('ping')
+        db = mongodb_client.get_database("luminatext")  # Explicit database name
+        
+        # Initialize Deepgram client
+        deepgram_api_key = os.getenv("DEEPGRAM_API_KEY")
+        if deepgram_api_key:
+            deepgram_client = DeepgramClient(api_key=deepgram_api_key)
+            print("✅ Deepgram client initialized successfully")
+        else:
+            print("⚠️  DEEPGRAM_API_KEY not found in environment")
+            
+        print("✅ Database connected successfully")
+        
+    except Exception as e:
+        print(f"❌ Startup error: {str(e)}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     if mongodb_client:
         mongodb_client.close()
+        print("✅ Database connection closed")
 
 def format_duration(seconds: Optional[float]) -> str:
     if seconds is None:
@@ -60,7 +76,7 @@ def format_file_size(bytes_size: int) -> str:
 async def root():
     return {
         "message": "LuminaText Transcription API",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "provider": "Deepgram",
         "endpoints": {
             "/api/health": "Health check",
@@ -142,28 +158,30 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 detail="Empty file uploaded"
             )
         
-        # CORRECT: Use the proper Deepgram SDK v3.2.0 API structure for file transcription
-        # Based on official documentation: deepgram.listen.v1.media.transcribe_file
+        # FIXED: Use correct Deepgram SDK v3.2.0 API
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_file.write(content)
             temp_file_path = temp_file.name
         
         try:
-            # Open the temporary file and transcribe it
+            # FIXED: Correct Deepgram API usage
             with open(temp_file_path, "rb") as audio_file:
-                response = deepgram_client.listen.v1.media.transcribe_file(
-                    request=audio_file.read(),
+                options = PrerecordedOptions(
                     model="nova-2",
                     smart_format=True,
                     punctuate=True,
                     paragraphs=True,
                     utterances=True,
                 )
+                
+                response = deepgram_client.listen.prerecorded.v("1").transcribe_file(
+                    audio_file.read(),
+                    options
+                )
             
-            result = response.to_dict()
-            
-            transcribed_text = result['results']['channels'][0]['alternatives'][0]['transcript']
-            duration = result['metadata'].get('duration', None)
+            # FIXED: Proper response parsing
+            transcribed_text = response.results.channels[0].alternatives[0].transcript
+            duration = response.metadata.duration if hasattr(response.metadata, 'duration') else None
             
             transcription_data = {
                 "text": transcribed_text,
@@ -180,11 +198,13 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 }
             }
             
+            # FIXED: Better database error handling
             if db:
                 try:
                     await db.transcriptions.insert_one(transcription_data.copy())
+                    print("✅ Transcription saved to database")
                 except Exception as e:
-                    print(f"Failed to save to database: {e}")
+                    print(f"⚠️  Failed to save to database: {e}")
             
             return {
                 "text": transcription_data["text"],
@@ -202,10 +222,9 @@ async def transcribe_audio(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error during transcription: {str(e)}")
+        print(f"❌ Error during transcription: {str(e)}")
         print(f"Error type: {type(e).__name__}")
         print(f"Deepgram client type: {type(deepgram_client)}")
-        print(f"Available methods: {dir(deepgram_client) if deepgram_client else 'None'}")
         print(traceback.format_exc())
         raise HTTPException(
             status_code=500,
@@ -245,7 +264,7 @@ async def get_history(limit: int = 10, skip: int = 0):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error fetching history: {str(e)}")
+        print(f"❌ Error fetching history: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching history: {str(e)}"
@@ -272,7 +291,7 @@ async def delete_transcription(transcription_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error deleting transcription: {str(e)}")
+        print(f"❌ Error deleting transcription: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Error deleting transcription: {str(e)}"
